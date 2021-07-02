@@ -1,19 +1,19 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using MahApps.Metro.Controls;
 using RepoZ.Api.Common.Common;
 using RepoZ.Api.Common.Git;
 using RepoZ.Api.Git;
 using RepoZ.App.Win.Controls;
-using RepoZ.App.Win.i18n;
 using SourceChord.FluentWPF;
 
 namespace RepoZ.App.Win
@@ -27,7 +27,10 @@ namespace RepoZ.App.Win
 		private readonly IRepositoryIgnoreStore _repositoryIgnoreStore;
 		private readonly DefaultRepositoryMonitor _monitor;
 		private readonly ITranslationService _translationService;
+		private readonly IRepositoryActionConfigurationStore _actionConfigurationStore;
 		private bool _closeOnDeactivate = true;
+		private bool _refreshDelayed = false;
+		private DateTime _timeOfLastRefresh = DateTime.MinValue;
 
 		public MainWindow(StatusCharacterMap statusCharacterMap,
 			IRepositoryInformationAggregator aggregator,
@@ -35,10 +38,10 @@ namespace RepoZ.App.Win
 			IRepositoryActionProvider repositoryActionProvider,
 			IRepositoryIgnoreStore repositoryIgnoreStore,
 			IAppSettingsService appSettingsService,
-			ITranslationService translationService)
+			ITranslationService translationService,
+			IRepositoryActionConfigurationStore actionConfigurationStore)
 		{
 			_translationService = translationService;
-
 			InitializeComponent();
 
 			AcrylicWindow.SetAcrylicWindowStyle(this, AcrylicWindowStyle.None);
@@ -55,18 +58,20 @@ namespace RepoZ.App.Win
 
 			_repositoryActionProvider = repositoryActionProvider ?? throw new ArgumentNullException(nameof(repositoryActionProvider));
 			_repositoryIgnoreStore = repositoryIgnoreStore ?? throw new ArgumentNullException(nameof(repositoryIgnoreStore));
+			_actionConfigurationStore = actionConfigurationStore ?? throw new ArgumentNullException(nameof(actionConfigurationStore));
+
 			lstRepositories.ItemsSource = aggregator.Repositories;
-			var view = CollectionViewSource.GetDefaultView(lstRepositories.ItemsSource);
-			view.CollectionChanged += View_CollectionChanged;
+
+			var view = (ListCollectionView)CollectionViewSource.GetDefaultView(aggregator.Repositories);
+			((ICollectionView)view).CollectionChanged += View_CollectionChanged;
 			view.Filter = FilterRepositories;
+			view.CustomSort = new CustomRepositoryViewSortBehavior();
 
-			lstRepositories.Items.SortDescriptions.Add(
-				new SortDescription(nameof(RepositoryView.Name),
-				ListSortDirection.Ascending));
-
+			var appName = System.Reflection.Assembly.GetEntryAssembly().GetName();
+			txtHelpCaption.Text = appName.Name + " " + appName.Version.ToString(2);
 			txtHelp.Text = GetHelp(statusCharacterMap);
 
-			PlaceFormToLowerRight();
+			PlaceFormByTaskbarLocation();
 		}
 
 		private void View_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -81,6 +86,7 @@ namespace RepoZ.App.Win
 			base.OnActivated(e);
 			ShowUpdateIfAvailable();
 			txtFilter.Focus();
+			txtFilter.SelectAll();
 		}
 
 		protected override void OnDeactivated(EventArgs e)
@@ -113,13 +119,14 @@ namespace RepoZ.App.Win
 		{
 			Dispatcher.Invoke(() =>
 			{
-				PlaceFormToLowerRight();
+				PlaceFormByTaskbarLocation();
 
 				if (!IsShown)
 					Show();
 
 				Activate();
 				txtFilter.Focus();
+				txtFilter.SelectAll();
 			});
 		}
 
@@ -205,6 +212,17 @@ namespace RepoZ.App.Win
 			_repositoryIgnoreStore.Reset();
 		}
 
+		private void CustomizeContextMenu_Click(object sender, RoutedEventArgs e)
+		{
+			Navigate("https://github.com/awaescher/RepoZ-RepositoryActions");
+
+			var fileName = ((FileRepositoryStore)_actionConfigurationStore).GetFileName();
+			var directoryName = Path.GetDirectoryName(fileName);
+
+			if (Directory.Exists(directoryName))
+				Process.Start(directoryName);
+		}
+
 		private void UpdateButton_Click(object sender, RoutedEventArgs e)
 		{
 			bool hasLink = !string.IsNullOrWhiteSpace(App.AvailableUpdate?.Url);
@@ -232,10 +250,32 @@ namespace RepoZ.App.Win
 			Process.Start(url);
 		}
 
-		private void PlaceFormToLowerRight()
+		private void PlaceFormByTaskbarLocation()
 		{
-			Top = SystemParameters.WorkArea.Height - Height;
-			Left = SystemParameters.WorkArea.Width - Width;
+			var topY = SystemParameters.WorkArea.Top;
+			var bottomY = SystemParameters.WorkArea.Height - Height;
+			var leftX = SystemParameters.WorkArea.Left;
+			var rightX = SystemParameters.WorkArea.Width - Width;
+
+			switch (TaskbarLocator.GetTaskBarLocation())
+			{
+				case TaskbarLocator.TaskBarLocation.Top:
+					Top = topY;
+					Left = rightX;
+					break;
+				case TaskbarLocator.TaskBarLocation.Bottom:
+					Top = bottomY;
+					Left = rightX;
+					break;
+				case TaskbarLocator.TaskBarLocation.Left:
+					Top = bottomY;
+					Left = leftX;
+					break;
+				case TaskbarLocator.TaskBarLocation.Right:
+					Top = bottomY;
+					Left = rightX;
+					break;
+			}
 		}
 
 		private void ShowUpdateIfAvailable()
@@ -279,10 +319,27 @@ namespace RepoZ.App.Win
 			};
 			item.Click += new RoutedEventHandler(clickAction);
 
-			if (action.SubActions != null)
+			// this is a deferred submenu. We want to make sure that the context menu can pop up
+			// fast, while submenus are not evaluated yet. We don't want to make the context menu
+			// itself slow because the creation of the submenu items takes some time.
+			if (action.DeferredSubActionsEnumerator != null)
 			{
-				foreach (var subAction in action.SubActions)
-					item.Items.Add(CreateMenuItem(sender, subAction));
+				// this is a template submenu item to enable submenus under the current
+				// menu item. this item gets removed when the real subitems are created
+				item.Items.Add("");
+
+				void SelfDetachingEventHandler(object _, RoutedEventArgs __)
+				{
+					item.SubmenuOpened -= SelfDetachingEventHandler;
+					item.Items.Clear();
+
+					foreach (var subAction in action.DeferredSubActionsEnumerator())
+						item.Items.Add(CreateMenuItem(sender, subAction));
+
+					Console.WriteLine($"Added {item.Items.Count} deferred sub action(s).");
+				}
+
+				item.SubmenuOpened += SelfDetachingEventHandler;
 			}
 
 			return item;
@@ -326,31 +383,54 @@ namespace RepoZ.App.Win
 				AcrylicWindow.SetAcrylicWindowStyle(this, newStyle);
 			}
 
-			// keep window open on deactivate to make screeshots, for example
+			// keep window open on deactivate to make screenshots, for example
 			if (e.Key == Key.F12)
 				_closeOnDeactivate = !_closeOnDeactivate;
 		}
 
 		private void txtFilter_TextChanged(object sender, TextChangedEventArgs e)
 		{
-			CollectionViewSource.GetDefaultView(lstRepositories.ItemsSource).Refresh();
+			// Text has changed, capture the timestamp
+			if (sender != null)
+				_timeOfLastRefresh = DateTime.Now;
+
+			// Spin while updates are in progress
+			if (DateTime.Now - _timeOfLastRefresh < TimeSpan.FromMilliseconds(100))
+			{
+				if (!_refreshDelayed)
+				{
+					this.Dispatcher.InvokeAsync(async () =>
+					{
+						_refreshDelayed = true;
+						await Task.Delay(200);
+						_refreshDelayed = false;
+						txtFilter_TextChanged(null, e);
+					});
+				}
+
+				return;
+			}
+
+			// Refresh the view
+			var view = CollectionViewSource.GetDefaultView(lstRepositories.ItemsSource);
+			view.Refresh();
 		}
 
 		private bool FilterRepositories(object item)
 		{
-			return (item as RepositoryView)?.MatchesFilter(txtFilter.Text) ?? false;
+			return !_refreshDelayed && ((item as RepositoryView)?.MatchesFilter(txtFilter.Text) ?? false);
 		}
 
 		private void txtFilter_Finish(object sender, EventArgs e)
 		{
-            lstRepositories.Focus();
-            if (lstRepositories.Items.Count > 0)
-            {
-                lstRepositories.SelectedIndex = 0;
-                var item = (ListBoxItem)lstRepositories.ItemContainerGenerator.ContainerFromIndex(0);
-                item?.Focus();
-            }
-        }
+			lstRepositories.Focus();
+			if (lstRepositories.Items.Count > 0)
+			{
+				lstRepositories.SelectedIndex = 0;
+				var item = (ListBoxItem)lstRepositories.ItemContainerGenerator.ContainerFromIndex(0);
+				item?.Focus();
+			}
+		}
 
 		private string GetHelp(StatusCharacterMap statusCharacterMap)
 		{
@@ -366,5 +446,16 @@ namespace RepoZ.App.Win
 		}
 
 		public bool IsShown => Visibility == Visibility.Visible && IsActive;
+	}
+
+	public class CustomRepositoryViewSortBehavior : IComparer
+	{
+		public int Compare(object x, object y)
+		{
+			if (x is RepositoryView xView && y is RepositoryView yView)
+				return string.CompareOrdinal(xView.Name, yView.Name);
+
+			return 0;
+		}
 	}
 }

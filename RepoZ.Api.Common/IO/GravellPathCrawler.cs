@@ -3,8 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace RepoZ.Api.Common.IO
 {
@@ -23,6 +21,7 @@ namespace RepoZ.Api.Common.IO
 		{
 			return FindInternal(root, searchPattern, onFoundAction, onQuit).ToList();
 		}
+
 		private IEnumerable<string> FindInternal(string root, string searchPattern, Action<string> onFound, Action onQuit)
 		{
 			var pending = new Queue<string>();
@@ -34,7 +33,7 @@ namespace RepoZ.Api.Common.IO
 
 				if (_pathSkipper.ShouldSkip(root))
 					continue;
-				
+
 				try
 				{
 					tmp = Directory.GetFiles(root, searchPattern);

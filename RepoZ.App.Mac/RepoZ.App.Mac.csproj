@@ -136,6 +136,7 @@
     <Compile Include="TinyIoC.cs" />
     <Compile Include="GeometryHelper.cs" />
     <Compile Include="i18n\ResourceDictionaryTranslationService.cs" />
+    <Compile Include="Controls\CheckableMenuItem.cs" />
   </ItemGroup>
   <ItemGroup>
     <InterfaceDefinition Include="PopupView.xib" />
@@ -162,14 +163,22 @@
   <ItemGroup>
     <BundleResource Include="Resources\StatusBarImage.png" />
     <BundleResource Include="Resources\StatusBarImage%402x.png" />
+    <BundleResource Include="Resources\StatusBarImageTemplate.png" />
+    <BundleResource Include="Resources\StatusBarImageTemplate%402x.png" />
     <BundleResource Include="..\RepoZ.App.Win\i18n\zh-cn.xaml">
       <Link>i18n\zh-cn.xaml</Link>
     </BundleResource>
     <BundleResource Include="..\RepoZ.App.Win\i18n\de-DE.xaml">
       <Link>i18n\de-DE.xaml</Link>
     </BundleResource>
+    <BundleResource Include="..\RepoZ.App.Win\i18n\nl-NL.xaml">
+      <Link>i18n\nl-NL.xaml</Link>
+    </BundleResource>
     <BundleResource Include="..\RepoZ.App.Win\i18n\en-us.xaml">
       <Link>i18n\en-us.xaml</Link>
+    </BundleResource>
+    <BundleResource Include="..\_ref\macOS\RepositoryActions.json">
+      <Link>Resources\RepositoryActions.json</Link>
     </BundleResource>
   </ItemGroup>
   <ItemGroup>

@@ -28,7 +28,6 @@ namespace RepoZ.Api.Git
 				filterProperty = repositoryView.CurrentBranch;
 			else if (filter.StartsWith("p ", StringComparison.OrdinalIgnoreCase))
 				filterProperty = repositoryView.Path;
-
 			if (filterProperty == null)
 				filterProperty = repositoryView.Name;
 			else
@@ -40,7 +39,7 @@ namespace RepoZ.Api.Git
 			if (useRegex)
 				return Regex.IsMatch(filterProperty, filter, RegexOptions.IgnoreCase);
 
-			return filterProperty.IndexOf(filter, StringComparison.OrdinalIgnoreCase) > -1;
+			return filterProperty?.IndexOf(filter, StringComparison.OrdinalIgnoreCase) > -1;
 		}
 	}
 }

@@ -1,11 +1,7 @@
 ﻿using RepoZ.Api.Common.Common;
 using RepoZ.Api.Common.Git.AutoFetch;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace RepoZ.App.Win
 {
@@ -56,6 +52,12 @@ namespace RepoZ.App.Win
 		{
 			get => AutoFetchMode == AutoFetchMode.Aggresive;
 			set => AutoFetchMode = AutoFetchMode.Aggresive;
+		}
+
+		public bool PruneOnFetch
+		{
+			get => AppSettingsService.PruneOnFetch;
+			set => AppSettingsService.PruneOnFetch = value;
 		}
 
 		public IAppSettingsService AppSettingsService { get; }
